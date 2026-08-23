@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    instance: raspberry-pi-monitoring
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - prometheus:9090
+
+  - job_name: raspberry-pi
+    static_configs:
+      - targets:
+          - host.docker.internal:9100
+        labels:
+          device: raspberry-pi-5
+
+  - job_name: pihole
+    # Match the exporter poll interval to avoid scraping stale data.
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    static_configs:
+      - targets:
+          - pihole-exporter:9617
+        labels:
+          service: pihole

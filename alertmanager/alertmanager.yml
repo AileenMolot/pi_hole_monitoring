@@ -1,0 +1,32 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default-log
+  group_by:
+    - alertname
+    - job
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default-log
+
+# Add email, Telegram, ntfy, Gotify, or another receiver here when you choose
+# where alerts should be sent. Prometheus is already wired to Alertmanager.
+
+inhibit_rules:
+  # When Node Exporter is unreachable, suppress all derived Raspberry Pi alerts
+  # to avoid an alert storm from a single root cause.
+  - source_matchers:
+      - alertname="RaspberryPiExporterDown"
+    target_matchers:
+      - job="raspberry-pi"
+    equal: []
+  # When the Pi-hole exporter is unreachable, suppress all derived Pi-hole alerts.
+  - source_matchers:
+      - alertname="PiholeExporterDown"
+    target_matchers:
+      - job="pihole"
+    equal: []

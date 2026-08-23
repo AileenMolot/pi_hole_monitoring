@@ -1,0 +1,210 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"raspberry-pi\",mode=\"idle\"}[5m]))",
+          "legendFormat": "CPU used"
+        }
+      ],
+      "title": "CPU Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "1 - (node_memory_MemAvailable_bytes{job=\"raspberry-pi\"} / node_memory_MemTotal_bytes{job=\"raspberry-pi\"})",
+          "legendFormat": "Memory used"
+        }
+      ],
+      "title": "Memory Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "1 - (node_filesystem_avail_bytes{job=\"raspberry-pi\",mountpoint=\"/\",fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{job=\"raspberry-pi\",mountpoint=\"/\",fstype!~\"tmpfs|overlay|squashfs\"})",
+          "legendFormat": "Root filesystem"
+        }
+      ],
+      "title": "Disk Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "node_load1{job=\"raspberry-pi\"}",
+          "legendFormat": "1m load"
+        },
+        {
+          "expr": "node_load5{job=\"raspberry-pi\"}",
+          "legendFormat": "5m load"
+        },
+        {
+          "expr": "node_load15{job=\"raspberry-pi\"}",
+          "legendFormat": "15m load"
+        }
+      ],
+      "title": "Load Average",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "binBps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{job=\"raspberry-pi\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "legendFormat": "{{device}} receive"
+        },
+        {
+          "expr": "sum by (device) (rate(node_network_transmit_bytes_total{job=\"raspberry-pi\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "legendFormat": "{{device}} transmit"
+        }
+      ],
+      "title": "Network Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "time() - node_boot_time_seconds{job=\"raspberry-pi\"}",
+          "legendFormat": "Uptime"
+        }
+      ],
+      "title": "Uptime",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "raspberry-pi",
+    "monitoring"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Raspberry Pi Resources",
+  "uid": "raspberry-pi-resources",
+  "version": 1,
+  "weekStart": ""
+}

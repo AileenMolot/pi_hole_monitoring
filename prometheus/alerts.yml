@@ -1,0 +1,94 @@
+groups:
+  - name: raspberry-pi-health
+    rules:
+      - alert: RaspberryPiExporterDown
+        expr: up{job="raspberry-pi"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Raspberry Pi metrics are unavailable
+          description: Prometheus cannot scrape Node Exporter on the Raspberry Pi.
+
+      - alert: RaspberryPiHighCpuLoad
+        expr: node_load1{job="raspberry-pi"} / count without(cpu, mode) (node_cpu_seconds_total{job="raspberry-pi", mode="idle"}) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raspberry Pi load is high
+          description: 1-minute load average per core is {{ $value | humanize }}. Threshold is 1.5.
+
+      - alert: RaspberryPiMemoryPressure
+        expr: 1 - (node_memory_MemAvailable_bytes{job="raspberry-pi"} / node_memory_MemTotal_bytes{job="raspberry-pi"}) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raspberry Pi memory usage is high
+          description: Memory usage is {{ $value | humanizePercentage }}. Available memory has been below 15% for 10 minutes.
+
+      - alert: RaspberryPiDiskAlmostFull
+        expr: 1 - (node_filesystem_avail_bytes{job="raspberry-pi", fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="raspberry-pi", fstype!~"tmpfs|overlay|squashfs"}) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raspberry Pi disk is nearly full
+          description: Filesystem {{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full.
+
+      - alert: RaspberryPiRebooted
+        expr: time() - node_boot_time_seconds{job="raspberry-pi"} < 300
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: Raspberry Pi recently rebooted
+          description: System uptime is {{ $value | humanizeDuration }}.
+
+      - alert: RaspberryPiHighTemperature
+        expr: node_thermal_zone_temp{job="raspberry-pi"} > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raspberry Pi temperature is high
+          description: Thermal zone temperature is {{ $value | humanize }}°C. Throttling may begin at 80°C on Raspberry Pi 5.
+
+      - alert: RaspberryPiNetworkErrors
+        expr: (rate(node_network_receive_errs_total{job="raspberry-pi", device!="lo"}[5m]) + rate(node_network_transmit_errs_total{job="raspberry-pi", device!="lo"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Raspberry Pi network interface errors
+          description: Interface {{ $labels.device }} is reporting {{ $value | humanize }} errors per second.
+
+  - name: pihole-health
+    rules:
+      - alert: PiholeExporterDown
+        expr: up{job="pihole"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pi-hole metrics are unavailable
+          description: Prometheus cannot scrape the Pi-hole exporter.
+
+      - alert: PiholeNoDnsQueries
+        expr: increase(pihole_dns_queries_today[15m]) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pi-hole query count is not changing
+          description: Pi-hole has reported no DNS query increase in the last 15 minutes.
+
+      - alert: PiholeBlockingDisabledOrIneffective
+        expr: pihole_ads_percentage_today < 1
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: Pi-hole blocking percentage is very low
+          description: Blocked query percentage is {{ $value | humanize }}%. Threshold is 1%.
