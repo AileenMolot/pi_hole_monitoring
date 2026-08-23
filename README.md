@@ -177,3 +177,10 @@ Pi-hole Exporter is reachable only inside the Docker monitoring network by defau
 - Secrets live in `.env`, which is ignored by Git.
 
 See `SECURITY.md` for the threat model, remaining risks, and deployment hardening checklist.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — component diagram, data flow, network layout, port summary
+- [Configuration](docs/configuration.md) — all environment variables, Prometheus and Alertmanager config reference
+- [Alerts](docs/alerts.md) — per-alert explanations and response runbooks
+- [Operations](docs/operations.md) — deploy, backup, upgrade, remote access, troubleshooting
