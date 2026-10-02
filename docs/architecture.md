@@ -26,8 +26,14 @@ The stack runs entirely in Docker Compose on the Raspberry Pi. It does not touch
                         │  │  Grafana    │ │ Alertmanager  │  │
                         │  │  :3000      │ │ :9093         │  │
                         │  │  dashboards │ │ routing       │  │
-                        │  └─────────────┘ └───────────────┘  │
-                        │                                     │
+                        │  └─────────────┘ └────┬──────────┘  │
+                        │                       │ webhook       │
+                        │                ┌──────▼──────────┐    │
+                        │                │ signal-bridge   │────┼──► healthchecks.io
+                        │                └──────┬──────────┘    │    (Watchdog ping)
+                        │                ┌──────▼──────────┐    │
+                        │                │ signal-api      │────┼──► Signal
+                        │                └─────────────────┘    │
                         └─────────────────────────────────────┘
                                         │
                                browser (localhost
@@ -49,7 +55,10 @@ Runs with host networking and the host PID namespace so it can report real Raspb
 Polls the Pi-hole HTTP API at a configurable interval (default 30s) and exposes the results as Prometheus metrics. Runs inside the Docker monitoring network and is not published to the host.
 
 ### Alertmanager
-Receives alerts from Prometheus, groups them, applies inhibit rules, and routes them to a configured receiver. Ships with a `default-log` placeholder receiver — alerts are not delivered until a real receiver is added.
+Receives alerts from Prometheus, groups them, applies inhibit rules, and posts them as webhooks to `signal-bridge`.
+
+### Signal Bridge and Signal API
+`signal-bridge` is a ~60-line stdlib Python script (`signal-bridge/bridge.py`) that turns Alertmanager webhooks into Signal messages and sends them through `signal-api` (`bbernhard/signal-cli-rest-api`). The always-firing `Watchdog` alert is not sent to Signal. Instead the bridge fetches pending messages from `signal-api` (proving the Signal link works) and pings `HEALTHCHECKS_URL`, so an external service notices when any part of the chain goes silent.
 
 ## Network Layout
 
@@ -59,14 +68,16 @@ Docker network: pi-monitoring
   grafana
   pihole-exporter
   alertmanager
+  signal-bridge
+  signal-api
 
 Host network (node-exporter only):
-  node-exporter — listens on 0.0.0.0:9100 by default
+  node-exporter — listens on 172.17.0.1:9100 (docker0) by default, not reachable from the LAN
 ```
 
 Node Exporter uses host networking so it sees the actual host interfaces and processes. Prometheus reaches it via `host.docker.internal:9100`, which resolves to the host gateway on modern Docker Engine on Linux.
 
-Pi-hole Exporter sits inside the monitoring network and is not exposed to the host or LAN. It initiates outbound connections to Pi-hole — the only component that needs to reach an external host.
+Pi-hole Exporter sits inside the monitoring network and is not exposed to the host or LAN. It initiates outbound connections to Pi-hole. `signal-api` connects out to Signal's servers and `signal-bridge` to `HEALTHCHECKS_URL`; nothing else needs to reach an external host.
 
 ## Data Flow
 
@@ -77,7 +88,7 @@ Pi-hole Exporter sits inside the monitoring network and is not exposed to the ho
 4. Prometheus evaluates alert rules every evaluation_interval
 5. Firing alerts are sent to Alertmanager
 6. Alertmanager applies grouping, inhibition, and silences
-7. Alertmanager forwards alerts to the configured receiver
+7. Alertmanager posts alerts to signal-bridge, which sends them to Signal via signal-api (Watchdog → healthchecks ping)
 8. Grafana queries Prometheus on demand when a dashboard is viewed
 ```
 
@@ -85,9 +96,10 @@ Pi-hole Exporter sits inside the monitoring network and is not exposed to the ho
 
 | Volume | Contents |
 |---|---|
-| `prometheus-data` | TSDB metrics (30-day retention by default) |
+| `prometheus-data` | TSDB metrics (30 days or 5 GB by default, whichever is reached first) |
 | `grafana-data` | Grafana database, plugins, user preferences |
 | `alertmanager-data` | Alert state, silences |
+| `signal-data` | Linked Signal account keys — treat as a secret |
 
 Grafana dashboards and datasource config are provisioned from `grafana/` in the repository and are not stored in the volume. Only UI state (preferences, silences, annotations, manually created objects) lives in the volumes.
 
@@ -98,5 +110,7 @@ Grafana dashboards and datasource config are provisioned from `grafana/` in the 
 | 3000 | Grafana | `MONITORING_BIND_ADDRESS` (default `127.0.0.1`) |
 | 9090 | Prometheus | `MONITORING_BIND_ADDRESS` (default `127.0.0.1`) |
 | 9093 | Alertmanager | `MONITORING_BIND_ADDRESS` (default `127.0.0.1`) |
-| 9100 | Node Exporter | `NODE_EXPORTER_LISTEN_ADDRESS` (default `0.0.0.0`) |
+| 9100 | Node Exporter | `NODE_EXPORTER_LISTEN_ADDRESS` (default `172.17.0.1`, the docker0 bridge) |
 | 9617 | Pi-hole Exporter | internal Docker network only |
+| 8080 | Signal API | `127.0.0.1` only (`SIGNAL_API_PORT`) |
+| 8080 | Signal Bridge | internal Docker network only |

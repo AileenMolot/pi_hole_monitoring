@@ -39,9 +39,3 @@ printf 'Grafana API is reachable.\n'
 printf '\nAlertmanager:\n'
 curl -fsS "http://localhost:${alertmanager_port}/-/healthy" >/dev/null
 printf 'Alertmanager API is reachable.\n'
-
-# Warn if no real notification receiver has been configured yet.
-if ! grep -qE '(email|webhook|slack|pagerduty|telegram|pushover|opsgenie|victorops|sns|wechat|msteams|discord)_configs' \
-    ./alertmanager/alertmanager.yml 2>/dev/null; then
-  printf 'Warning: Alertmanager has no notification receiver configured. Alerts will be logged but not delivered.\n' >&2
-fi

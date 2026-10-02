@@ -28,9 +28,12 @@ Edit `.env` and set at minimum:
 
 ```env
 PIHOLE_HOSTNAME=192.168.1.10   # your Pi-hole IP or hostname
-PIHOLE_API_TOKEN=...           # from Pi-hole Settings → API / Web interface
+PIHOLE_PASSWORD=...            # Pi-hole app password (Settings → Web interface / API)
 GRAFANA_ADMIN_PASSWORD=...     # long random string
 GRAFANA_SECRET_KEY=...         # generate: openssl rand -base64 32
+SIGNAL_NUMBER=+380...          # Signal account you will link in step 7
+SIGNAL_RECIPIENTS=+380...      # who receives alerts (comma-separated)
+HEALTHCHECKS_URL=...           # optional: healthchecks.io ping URL (5 min period, 10 min grace)
 ```
 
 ### 4. Validate configuration
@@ -55,9 +58,25 @@ docker compose up -d
 
 Open Grafana at `http://127.0.0.1:3000` and log in with the admin credentials from `.env`.
 
-### 7. Configure an alert receiver
+### 7. Link Signal for alert delivery
 
-Edit `alertmanager/alertmanager.yml` and add a real notification receiver. See [configuration.md](configuration.md) for examples.
+`signal-api` must be linked to your Signal account once, as a secondary device (the same way Signal Desktop is linked). Its port is bound to localhost on the Pi, so tunnel it from your computer:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 pi@<raspberry-pi-ip>
+```
+
+Open `http://127.0.0.1:8080/v1/qrcodelink?device_name=pi-monitoring`. In the Signal app, go to Settings → Linked devices → **+** and scan the QR code. The link is stored in the `signal-data` volume and survives restarts.
+
+Send a test alert:
+
+```sh
+docker compose exec alertmanager amtool alert add TestAlert severity=info \
+  --annotation=summary="Test alert from Pi monitoring" \
+  --alertmanager.url=http://localhost:9093
+```
+
+It arrives on Signal after about 30 seconds (`group_wait`). If it doesn't, check `docker compose logs signal-bridge signal-api`.
 
 ---
 
@@ -118,51 +137,22 @@ docker compose down -v
 
 ---
 
-## Backups
+## State and Recovery
 
-### Create a backup
+There is no backup script, because everything that matters is in the repository or can be recreated:
 
-```sh
-./scripts/backup-grafana.sh
-```
-
-Backups are saved to `./backups/` by default. Pass a custom path as the first argument:
-
-```sh
-./scripts/backup-grafana.sh /mnt/nas/grafana-backups
-```
-
-The script keeps the 7 most recent archives and removes older ones automatically.
-
-### What is backed up
-
-- Grafana volume (`grafana-data`): user preferences, annotations, manually created dashboards and datasources, alert notification history, and session data
-
-The following do **not** need to be backed up because they are version-controlled in the repository:
-- Provisioned dashboards (`grafana/dashboards/`)
-- Datasource config (`grafana/provisioning/`)
-- Prometheus rules (`prometheus/alerts.yml`)
-- Alertmanager config (`alertmanager/alertmanager.yml`)
-
-Prometheus metrics (`prometheus-data`) are not backed up by default. They are ephemeral by design — the stack will rebuild its metric history as time passes after a restore.
-
-### Restore a Grafana backup
-
-Stop Grafana, restore the volume from a backup archive, then restart:
+- Dashboards, the datasource, alert rules and Alertmanager config are version-controlled and provisioned from this repository.
+- `grafana-data` holds only UI state: preferences, stars, annotations, sessions. If it is lost or a Grafana upgrade breaks it, reset it and Grafana re-provisions everything on start:
 
 ```sh
 docker compose stop grafana
-
-docker run --rm \
-  -v pi-hole-monitoring_grafana-data:/grafana-data \
-  -v "$(pwd)/backups:/backup:ro" \
-  alpine:3.20 \
-  sh -c "rm -rf /grafana-data/* && tar xzf /backup/grafana-data-TIMESTAMP.tgz -C /grafana-data"
-
-docker compose start grafana
+docker compose rm -f grafana
+docker volume rm pi-hole-monitoring_grafana-data
+docker compose up -d grafana
 ```
 
-Replace `TIMESTAMP` with the filename of the archive you want to restore.
+- `prometheus-data` is metric history; it rebuilds as time passes.
+- `signal-data` holds the linked Signal account. If it is lost, link Signal again (First Deployment, step 7).
 
 ---
 
@@ -172,15 +162,14 @@ Replace `TIMESTAMP` with the filename of the archive you want to restore.
 
 1. Update image tags in `docker-compose.yml` (e.g. `grafana/grafana:13.0.2` → `grafana/grafana:13.1.0`)
 2. Validate: `./scripts/validate-config.sh`
-3. Back up Grafana before upgrading: `./scripts/backup-grafana.sh`
-4. Pull and restart:
+3. Pull and restart:
 
 ```sh
 docker compose pull
 docker compose up -d
 ```
 
-5. Verify: `./scripts/check-stack.sh`
+4. Verify: `./scripts/check-stack.sh`. If a Grafana upgrade leaves it broken, roll back the tag or reset its volume (see State and Recovery).
 
 ### Update alert rules or Prometheus config
 
@@ -239,7 +228,7 @@ If exposing Grafana over HTTPS via a reverse proxy (nginx, Caddy, Traefik):
 
 1. Open `http://127.0.0.1:9090/targets` and check the error message
 2. For `raspberry-pi` target: check that Node Exporter is running (`docker compose ps node-exporter`) and that `host.docker.internal` resolves from within the Prometheus container. If it does not, replace `host.docker.internal:9100` in `prometheus/prometheus.yml` with the Pi's LAN IP
-3. For `pihole` target: check Pi-hole Exporter logs (`docker compose logs pihole-exporter`) and verify `PIHOLE_HOSTNAME` and `PIHOLE_API_TOKEN` are correct in `.env`
+3. For `pihole` target: check Pi-hole Exporter logs (`docker compose logs pihole-exporter`) and verify `PIHOLE_HOSTNAME` and `PIHOLE_PASSWORD` are correct in `.env`
 
 ### Grafana shows "No data"
 
@@ -258,24 +247,23 @@ docker compose restart grafana
 
 ### Alerts are not being delivered
 
-1. Run `./scripts/check-stack.sh` — it will warn if no notification receiver is configured
-2. Open `http://127.0.0.1:9093` and check Alertmanager status
-3. Verify `alertmanager/alertmanager.yml` has a real receiver with a `*_configs` block
-4. After updating the config, reload: `docker compose kill -s SIGHUP alertmanager`
+1. Open `http://127.0.0.1:9093` and check Alertmanager status
+2. Check bridge logs: `docker compose logs signal-bridge`. A `delivery failed` line means `signal-api` rejected the send; Alertmanager will retry.
+3. Check `docker compose logs signal-api`. If the device link was removed in the Signal app, link it again (First Deployment, step 7).
+4. Verify `SIGNAL_NUMBER` and `SIGNAL_RECIPIENTS` in `.env` use international format (`+380...`), then run `docker compose up -d signal-bridge`
 5. Check Alertmanager logs: `docker compose logs alertmanager`
 
 ### Pi-hole Exporter returns errors
 
 1. Check logs: `docker compose logs pihole-exporter`
-2. Confirm the Pi-hole API is reachable from the Pi: `curl "http://${PIHOLE_HOSTNAME}/admin/api.php?auth=${PIHOLE_API_TOKEN}"`
-3. Confirm `PIHOLE_API_TOKEN` is correct — an invalid token returns `[]` from the Pi-hole API, which the exporter treats as an error
+2. Confirm the Pi-hole API accepts the password from the Pi (Pi-hole v6): `curl -s -X POST "http://${PIHOLE_HOSTNAME}/api/auth" -d "{\"password\":\"${PIHOLE_PASSWORD}\"}"`. A response containing `"valid":true` means the password works.
+3. If it doesn't, create a new app password in Pi-hole (Settings → Web interface / API → Configure app password), put it in `PIHOLE_PASSWORD`, and run `docker compose up -d pihole-exporter`
 4. If Pi-hole uses HTTPS with a self-signed certificate, mount the CA cert into the exporter and set `PIHOLE_PROTOCOL=https`
 
 ### Disk is filling up
 
 The most common cause is Prometheus TSDB growth. Options:
 
-- Reduce `PROMETHEUS_RETENTION` in `.env` (e.g. `15d`) and restart Prometheus
+- Reduce `PROMETHEUS_RETENTION` (e.g. `15d`) or `PROMETHEUS_RETENTION_SIZE` (e.g. `2GB`) in `.env`, then run `docker compose up -d prometheus`
 - Increase available disk space
 - Remove unused Docker images: `docker image prune -a`
-- Check if Grafana backups are accumulating on the same partition: `ls -lh backups/`

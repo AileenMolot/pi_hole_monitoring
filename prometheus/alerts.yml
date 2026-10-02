@@ -1,4 +1,17 @@
 groups:
+  - name: meta
+    rules:
+      # Always firing. Alertmanager forwards it to the Signal bridge, which pings
+      # HEALTHCHECKS_URL; if the pings stop, the external service alerts you that
+      # the Pi or this stack is down.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Alerting pipeline heartbeat
+          description: Always firing (value {{ $value }}). Absence means the monitoring stack is down.
+
   - name: raspberry-pi-health
     rules:
       - alert: RaspberryPiExporterDown

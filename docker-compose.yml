@@ -1,14 +1,23 @@
 name: pi-hole-monitoring
 
+# Cap container logs so they can't slowly fill the SD card.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   prometheus:
     image: prom/prometheus:v3.11.3-distroless
     container_name: pi-monitoring-prometheus
     restart: unless-stopped
+    logging: *logging
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-5GB}
     ports:
       - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     extra_hosts:
@@ -31,6 +40,7 @@ services:
     image: grafana/grafana:13.0.2
     container_name: pi-monitoring-grafana
     restart: unless-stopped
+    logging: *logging
     ports:
       - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     environment:
@@ -38,7 +48,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?set GRAFANA_SECRET_KEY in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DATE_FORMATS_DEFAULT_TIMEZONE: "${TZ:-Europe/Kiev}"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: "${TZ:-Europe/Kyiv}"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_PLUGINS_CHECK_FOR_UPDATES: "false"
@@ -74,9 +84,10 @@ services:
     image: quay.io/prometheus/node-exporter:v1.12.1
     container_name: pi-monitoring-node-exporter
     restart: unless-stopped
+    logging: *logging
     command:
       - --path.rootfs=/host
-      - --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}
+      - --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS:-172.17.0.1:9100}
       - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)
     network_mode: host
     pid: host
@@ -92,11 +103,12 @@ services:
     image: ekofr/pihole-exporter:v1.2.0
     container_name: pi-monitoring-pihole-exporter
     restart: unless-stopped
+    logging: *logging
     environment:
       PIHOLE_HOSTNAME: ${PIHOLE_HOSTNAME:?set PIHOLE_HOSTNAME in .env}
       PIHOLE_PROTOCOL: ${PIHOLE_PROTOCOL:-http}
       PIHOLE_PORT: "${PIHOLE_PORT:-80}"
-      PIHOLE_API_TOKEN: ${PIHOLE_API_TOKEN:?set PIHOLE_API_TOKEN in .env}
+      PIHOLE_PASSWORD: ${PIHOLE_PASSWORD:?set PIHOLE_PASSWORD in .env}
       INTERVAL: ${PIHOLE_EXPORTER_INTERVAL:-30s}
       PORT: "9617"
     read_only: true
@@ -113,6 +125,7 @@ services:
     image: prom/alertmanager:v0.33.1
     container_name: pi-monitoring-alertmanager
     restart: unless-stopped
+    logging: *logging
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
@@ -132,6 +145,52 @@ services:
     networks:
       - monitoring
 
+  # Signal account linked as a secondary device; see docs/operations.md.
+  # Its entrypoint adjusts users/ownership at startup, so it cannot run with a
+  # read-only root filesystem or dropped capabilities like the other services.
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:0.101
+    container_name: pi-monitoring-signal-api
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MODE: normal
+    ports:
+      # Localhost only: needed once to link the device via the QR code page.
+      - "127.0.0.1:${SIGNAL_API_PORT:-8080}:8080"
+    volumes:
+      - signal-data:/home/.local/share/signal-cli
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - monitoring
+
+  # Translates Alertmanager webhooks into Signal messages.
+  signal-bridge:
+    image: python:3.13.16-alpine3.24
+    container_name: pi-monitoring-signal-bridge
+    restart: unless-stopped
+    logging: *logging
+    command: ["python", "-u", "/app/bridge.py"]
+    user: "65534:65534"
+    environment:
+      SIGNAL_NUMBER: ${SIGNAL_NUMBER:?set SIGNAL_NUMBER in .env}
+      SIGNAL_RECIPIENTS: ${SIGNAL_RECIPIENTS:?set SIGNAL_RECIPIENTS in .env}
+      HEALTHCHECKS_URL: ${HEALTHCHECKS_URL:-}
+    volumes:
+      - ./signal-bridge/bridge.py:/app/bridge.py:ro
+    depends_on:
+      - signal-api
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - monitoring
+
 networks:
   monitoring:
     name: pi-monitoring
@@ -140,3 +199,4 @@ volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  signal-data:

@@ -13,7 +13,7 @@ chmod 600 .env
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
-| `TZ` | `Europe/Kiev` | No | Timezone used by Grafana for dashboard display. |
+| `TZ` | `Europe/Kyiv` | No | Timezone used by Grafana for dashboard display. |
 | `MONITORING_BIND_ADDRESS` | `127.0.0.1` | No | IP address that Grafana, Prometheus, and Alertmanager bind to. Use `127.0.0.1` (localhost only) or `0.0.0.0` (all interfaces, LAN-accessible). |
 
 ### Pi-hole
@@ -23,7 +23,7 @@ chmod 600 .env
 | `PIHOLE_HOSTNAME` | — | **Yes** | Hostname or IP address of the existing Pi-hole instance. Do not include a protocol prefix. |
 | `PIHOLE_PROTOCOL` | `http` | No | Protocol used to reach Pi-hole: `http` or `https`. |
 | `PIHOLE_PORT` | `80` | No | Port Pi-hole's web interface listens on. |
-| `PIHOLE_API_TOKEN` | — | **Yes** | Pi-hole API token. Find it in Pi-hole Settings → API / Web interface → Show API token. |
+| `PIHOLE_PASSWORD` | — | **Yes** | Pi-hole v6 app password: Settings → Web interface / API → Configure app password. On Pi-hole v5, use the API token instead. |
 | `PIHOLE_EXPORTER_INTERVAL` | `30s` | No | How often Pi-hole Exporter polls the Pi-hole API. The Prometheus scrape interval for the `pihole` job is set to match this value. |
 
 ### Grafana
@@ -43,6 +43,7 @@ chmod 600 .env
 |---|---|---|---|
 | `PROMETHEUS_PORT` | `9090` | No | Host port Prometheus listens on. |
 | `PROMETHEUS_RETENTION` | `30d` | No | How long Prometheus keeps metrics. Accepts durations like `15d`, `90d`. Older data is deleted automatically. |
+| `PROMETHEUS_RETENTION_SIZE` | `5GB` | No | Maximum metric storage size. When reached, the oldest data is deleted first, even if it is younger than `PROMETHEUS_RETENTION`. |
 
 ### Alertmanager
 
@@ -50,11 +51,20 @@ chmod 600 .env
 |---|---|---|---|
 | `ALERTMANAGER_PORT` | `9093` | No | Host port Alertmanager listens on. |
 
+### Signal
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SIGNAL_NUMBER` | — | **Yes** | Phone number of the Signal account linked to `signal-api`, in international format (`+380...`). |
+| `SIGNAL_RECIPIENTS` | — | **Yes** | Comma-separated phone numbers that receive alerts. Can include `SIGNAL_NUMBER` itself (arrives as "Note to Self"). |
+| `SIGNAL_API_PORT` | `8080` | No | Host port for `signal-api`, always bound to `127.0.0.1`. Only needed for the one-time device-linking QR page. |
+| `HEALTHCHECKS_URL` | empty | No | Ping URL for an external dead man's switch (e.g. healthchecks.io). The `Watchdog` alert pings it every 5 minutes; leave empty to disable. |
+
 ### Node Exporter
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
-| `NODE_EXPORTER_LISTEN_ADDRESS` | `0.0.0.0:9100` | No | Address Node Exporter binds to. Defaults to all interfaces because Node Exporter uses host networking and Prometheus reaches it via `host.docker.internal`. Change to a specific LAN IP to reduce exposure on multi-homed hosts. |
+| `NODE_EXPORTER_LISTEN_ADDRESS` | `172.17.0.1:9100` | No | Address Node Exporter binds to. Defaults to the `docker0` bridge IP, which is where `host.docker.internal` points, so Prometheus can reach it but the LAN cannot. If your `docker0` IP differs (`ip -4 addr show docker0`), set it here. Node Exporter fails to start if the IP doesn't exist on the host, which fires `RaspberryPiExporterDown`. |
 
 ## Prometheus Configuration
 
@@ -78,12 +88,14 @@ If `host.docker.internal` does not resolve on your host, replace it in `promethe
 
 `alertmanager/alertmanager.yml` controls how alerts are grouped and delivered.
 
-The stack ships with a `default-log` placeholder receiver. Alerts will not be delivered until a real receiver is added. Example configurations:
+All alerts go to the `signal` receiver, a webhook to `signal-bridge`. A child route sends the `Watchdog` alert every 5 minutes (instead of every 4 hours) to keep the dead man's switch fed.
+
+To use a different or additional channel, add it to the `signal` receiver or replace it. Examples:
 
 **Email**
 ```yaml
 receivers:
-  - name: default-log
+  - name: signal
     email_configs:
       - to: you@example.com
         from: alertmanager@example.com
@@ -95,7 +107,7 @@ receivers:
 **Telegram**
 ```yaml
 receivers:
-  - name: default-log
+  - name: signal
     telegram_configs:
       - bot_token: your-bot-token
         chat_id: 123456789
@@ -104,7 +116,7 @@ receivers:
 **ntfy**
 ```yaml
 receivers:
-  - name: default-log
+  - name: signal
     webhook_configs:
       - url: https://ntfy.sh/your-topic
 ```

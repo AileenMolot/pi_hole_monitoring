@@ -13,6 +13,22 @@ When Node Exporter or Pi-hole Exporter goes down, Alertmanager suppresses all de
 
 ---
 
+## Meta Alerts
+
+### Watchdog
+
+| Field | Value |
+|---|---|
+| Severity | none |
+| For | — (always firing) |
+| Expression | `vector(1)` |
+
+**What it means:** This alert always fires, by design. Alertmanager sends it to `signal-bridge` every 5 minutes. The bridge doesn't send a Signal message; it fetches pending messages from `signal-api` (which fails if the Signal link is broken) and then pings `HEALTHCHECKS_URL`. If the Pi, Docker, Prometheus, Alertmanager, the bridge or the Signal link stops working, the pings stop and the external service (e.g. healthchecks.io) alerts you.
+
+**How to respond:** Never silence it. If the external service reports missed pings, check that the Pi is reachable, then run `docker compose ps` and `./scripts/check-stack.sh`. If the stack looks healthy, check `docker compose logs signal-bridge signal-api`; you may need to link Signal again (`docs/operations.md`, step 7).
+
+---
+
 ## Raspberry Pi Alerts
 
 ### RaspberryPiExporterDown
@@ -80,9 +96,8 @@ When Node Exporter or Pi-hole Exporter goes down, Alertmanager suppresses all de
 **How to respond:**
 1. Check disk usage: `df -h` and `du -sh /* 2>/dev/null | sort -rh | head -20`
 2. Common culprits: Prometheus TSDB (`docker volume inspect pi-hole-monitoring_prometheus-data`), Docker images, system logs
-3. Reduce `PROMETHEUS_RETENTION` in `.env` and restart Prometheus if metrics storage is the cause
+3. Reduce `PROMETHEUS_RETENTION` or `PROMETHEUS_RETENTION_SIZE` in `.env` and run `docker compose up -d prometheus` if metrics storage is the cause
 4. Remove unused Docker images: `docker image prune`
-5. Rotate old Grafana backups if stored on the same filesystem
 
 ---
 
@@ -152,8 +167,8 @@ When Node Exporter or Pi-hole Exporter goes down, Alertmanager suppresses all de
 **How to respond:**
 1. Check container status: `docker compose ps pihole-exporter`
 2. Check logs: `docker compose logs pihole-exporter`
-3. Verify Pi-hole is reachable from the Pi: `curl http://<PIHOLE_HOSTNAME>/admin/api.php`
-4. Confirm `PIHOLE_API_TOKEN` is correct — an invalid token causes the exporter to return errors
+3. Verify Pi-hole is reachable from the Pi: `curl http://<PIHOLE_HOSTNAME>/api/info/version`
+4. Confirm `PIHOLE_PASSWORD` is a valid app password — an invalid password causes the exporter to return errors
 
 ---
 

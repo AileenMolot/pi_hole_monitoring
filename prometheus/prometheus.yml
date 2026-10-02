@@ -4,8 +4,9 @@ global:
   external_labels:
     instance: raspberry-pi-monitoring
 
+# Relative to this file, so it resolves both in the container and for promtool.
 rule_files:
-  - /etc/prometheus/alerts.yml
+  - alerts.yml
 
 alerting:
   alertmanagers:

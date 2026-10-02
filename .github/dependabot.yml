@@ -1,0 +1,7 @@
+# Opens PRs when pinned image tags in docker-compose.yml have new releases.
+version: 2
+updates:
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly
