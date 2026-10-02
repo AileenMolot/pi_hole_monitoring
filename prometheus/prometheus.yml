@@ -1,8 +1,6 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
-  external_labels:
-    instance: raspberry-pi-monitoring
 
 # Relative to this file, so it resolves both in the container and for promtool.
 rule_files:
@@ -28,7 +26,7 @@ scrape_configs:
           device: raspberry-pi-5
 
   - job_name: pihole
-    # Match the exporter poll interval to avoid scraping stale data.
+    # Slower than the global default to keep load on the Pi-hole API low.
     scrape_interval: 30s
     scrape_timeout: 25s
     static_configs:

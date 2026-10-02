@@ -39,7 +39,7 @@ HEALTHCHECKS_URL=...           # optional: healthchecks.io ping URL (5 min perio
 ### 4. Validate configuration
 
 ```sh
-./scripts/validate-config.sh
+./scripts/validate_config.py
 ```
 
 Fix any errors before continuing.
@@ -161,7 +161,7 @@ docker compose up -d grafana
 ### Upgrade container images
 
 1. Update image tags in `docker-compose.yml` (e.g. `grafana/grafana:13.0.2` → `grafana/grafana:13.1.0`)
-2. Validate: `./scripts/validate-config.sh`
+2. Validate: `./scripts/validate_config.py`
 3. Pull and restart:
 
 ```sh
@@ -174,7 +174,7 @@ docker compose up -d
 ### Update alert rules or Prometheus config
 
 1. Edit `prometheus/alerts.yml` or `prometheus/prometheus.yml`
-2. Validate: `./scripts/validate-config.sh`
+2. Validate: `./scripts/validate_config.py`
 3. Reload without restarting: `docker compose kill -s SIGHUP prometheus`
 4. Check `Status > Rules` and `Status > Targets` in the Prometheus UI
 

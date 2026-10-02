@@ -27,7 +27,6 @@ This project monitors a Raspberry Pi and an existing Pi-hole instance. It does n
 - Required secrets fail fast if `.env` is missing or incomplete.
 - `.env` is ignored by Git.
 - Container image tags are pinned instead of using `latest`.
-- Prometheus `external_labels` identify this instance in Alertmanager routing.
 
 ## Remaining Risks
 
@@ -80,7 +79,6 @@ Alerts go to Signal via `signal-bridge` → `signal-api`. If the whole Raspberry
 Mitigations:
 
 - Set `HEALTHCHECKS_URL` so the always-firing `Watchdog` alert pings an external dead man's switch every 5 minutes. The ping is skipped if `signal-api` can't reach Signal, so a broken Signal link is caught too.
-- Run `./scripts/validate-config.sh` after changes to confirm a receiver is configured.
 
 ## Maintenance Checklist
 

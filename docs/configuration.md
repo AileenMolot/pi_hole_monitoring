@@ -1,150 +1,32 @@
 # Configuration Reference
 
-All runtime configuration lives in `.env`. Copy `.env.example` to `.env` and fill in the values before running the stack.
+## Environment
+
+All runtime settings live in `.env`. [`.env.example`](../.env.example) lists every variable with a comment and marks the required ones. Copy it and fill it in:
 
 ```sh
 cp .env.example .env
 chmod 600 .env
 ```
 
-## Environment Variables
+Compose fails fast if a required variable is missing. After changing `.env`, run `docker compose up -d` to recreate the affected containers.
 
-### General
+## Prometheus
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `TZ` | `Europe/Kyiv` | No | Timezone used by Grafana for dashboard display. |
-| `MONITORING_BIND_ADDRESS` | `127.0.0.1` | No | IP address that Grafana, Prometheus, and Alertmanager bind to. Use `127.0.0.1` (localhost only) or `0.0.0.0` (all interfaces, LAN-accessible). |
+`prometheus/prometheus.yml` scrapes every 15s and evaluates rules every 15s. The `pihole` job scrapes every 30s to keep load on the Pi-hole API low.
 
-### Pi-hole
+If `host.docker.internal` does not resolve on your host, replace the `raspberry-pi` target with the Pi's LAN IP (for example `192.168.1.20:9100`). In that case, set `NODE_EXPORTER_LISTEN_ADDRESS` to that same IP.
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `PIHOLE_HOSTNAME` | — | **Yes** | Hostname or IP address of the existing Pi-hole instance. Do not include a protocol prefix. |
-| `PIHOLE_PROTOCOL` | `http` | No | Protocol used to reach Pi-hole: `http` or `https`. |
-| `PIHOLE_PORT` | `80` | No | Port Pi-hole's web interface listens on. |
-| `PIHOLE_PASSWORD` | — | **Yes** | Pi-hole v6 app password: Settings → Web interface / API → Configure app password. On Pi-hole v5, use the API token instead. |
-| `PIHOLE_EXPORTER_INTERVAL` | `30s` | No | How often Pi-hole Exporter polls the Pi-hole API. The Prometheus scrape interval for the `pihole` job is set to match this value. |
+Reload after editing: `docker compose kill -s SIGHUP prometheus`.
 
-### Grafana
+## Alertmanager
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `GRAFANA_PORT` | `3000` | No | Host port Grafana listens on. |
-| `GRAFANA_ADMIN_USER` | `admin` | No | Grafana admin username. |
-| `GRAFANA_ADMIN_PASSWORD` | — | **Yes** | Grafana admin password. Use a long random string. |
-| `GRAFANA_SECRET_KEY` | — | **Yes** | Key used to sign Grafana sessions and cookies. Generate with `openssl rand -base64 32`. Without a fixed key, Grafana generates one at startup and invalidates all sessions on every container restart. |
-| `GRAFANA_ROOT_URL` | `http://127.0.0.1:3000` | No | Absolute URL of the Grafana instance. Used for links in alert notifications. Change this if Grafana is accessed through a reverse proxy or at a non-default address. |
-| `GRAFANA_COOKIE_SECURE` | `false` | No | Set to `true` when Grafana is served over HTTPS to mark session cookies as Secure. |
+`alertmanager/alertmanager.yml` sends every alert to the `signal` receiver, a webhook to `signal-bridge`. A child route repeats `Watchdog` every 5 minutes (instead of 4 hours) to keep the dead man's switch fed.
 
-### Prometheus
+To add another channel (email, Telegram, ntfy…), add its `*_configs` block to the `signal` receiver; see the [Alertmanager receiver docs](https://prometheus.io/docs/alerting/latest/configuration/#receiver-integration-settings).
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `PROMETHEUS_PORT` | `9090` | No | Host port Prometheus listens on. |
-| `PROMETHEUS_RETENTION` | `30d` | No | How long Prometheus keeps metrics. Accepts durations like `15d`, `90d`. Older data is deleted automatically. |
-| `PROMETHEUS_RETENTION_SIZE` | `5GB` | No | Maximum metric storage size. When reached, the oldest data is deleted first, even if it is younger than `PROMETHEUS_RETENTION`. |
+Reload after editing: `docker compose kill -s SIGHUP alertmanager`.
 
-### Alertmanager
+## Grafana
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `ALERTMANAGER_PORT` | `9093` | No | Host port Alertmanager listens on. |
-
-### Signal
-
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `SIGNAL_NUMBER` | — | **Yes** | Phone number of the Signal account linked to `signal-api`, in international format (`+380...`). |
-| `SIGNAL_RECIPIENTS` | — | **Yes** | Comma-separated phone numbers that receive alerts. Can include `SIGNAL_NUMBER` itself (arrives as "Note to Self"). |
-| `SIGNAL_API_PORT` | `8080` | No | Host port for `signal-api`, always bound to `127.0.0.1`. Only needed for the one-time device-linking QR page. |
-| `HEALTHCHECKS_URL` | empty | No | Ping URL for an external dead man's switch (e.g. healthchecks.io). The `Watchdog` alert pings it every 5 minutes; leave empty to disable. |
-
-### Node Exporter
-
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `NODE_EXPORTER_LISTEN_ADDRESS` | `172.17.0.1:9100` | No | Address Node Exporter binds to. Defaults to the `docker0` bridge IP, which is where `host.docker.internal` points, so Prometheus can reach it but the LAN cannot. If your `docker0` IP differs (`ip -4 addr show docker0`), set it here. Node Exporter fails to start if the IP doesn't exist on the host, which fires `RaspberryPiExporterDown`. |
-
-## Prometheus Configuration
-
-`prometheus/prometheus.yml` is mounted read-only into the Prometheus container. Key settings:
-
-- `scrape_interval: 15s` — global default scrape frequency
-- `evaluation_interval: 15s` — how often alert rules are evaluated
-- `external_labels.instance: raspberry-pi-monitoring` — label attached to all metrics and alerts from this Prometheus instance; useful if alerts are routed to a shared Alertmanager or a remote write target
-- The `pihole` job overrides `scrape_interval: 30s` and `scrape_timeout: 25s` to match the exporter poll interval
-
-If `host.docker.internal` does not resolve on your host, replace it in `prometheus/prometheus.yml` with the Raspberry Pi's LAN IP:
-
-```yaml
-- job_name: raspberry-pi
-  static_configs:
-    - targets:
-        - 192.168.1.20:9100   # replace with actual Pi IP
-```
-
-## Alertmanager Configuration
-
-`alertmanager/alertmanager.yml` controls how alerts are grouped and delivered.
-
-All alerts go to the `signal` receiver, a webhook to `signal-bridge`. A child route sends the `Watchdog` alert every 5 minutes (instead of every 4 hours) to keep the dead man's switch fed.
-
-To use a different or additional channel, add it to the `signal` receiver or replace it. Examples:
-
-**Email**
-```yaml
-receivers:
-  - name: signal
-    email_configs:
-      - to: you@example.com
-        from: alertmanager@example.com
-        smarthost: smtp.example.com:587
-        auth_username: you@example.com
-        auth_password: your-smtp-password
-```
-
-**Telegram**
-```yaml
-receivers:
-  - name: signal
-    telegram_configs:
-      - bot_token: your-bot-token
-        chat_id: 123456789
-```
-
-**ntfy**
-```yaml
-receivers:
-  - name: signal
-    webhook_configs:
-      - url: https://ntfy.sh/your-topic
-```
-
-After editing `alertmanager/alertmanager.yml`, reload Alertmanager without restarting the stack:
-
-```sh
-docker compose kill -s SIGHUP alertmanager
-```
-
-## Grafana Provisioning
-
-Grafana is provisioned automatically from files in `grafana/`:
-
-```
-grafana/
-  provisioning/
-    datasources/
-      prometheus.yml   # Prometheus datasource (locked, not editable from UI)
-    dashboards/
-      dashboards.yml   # Dashboard provider config
-  dashboards/
-    raspberry-pi.json  # Raspberry Pi Resources dashboard
-    pihole.json        # Pi-hole Monitoring dashboard
-```
-
-Provisioned dashboards and datasources cannot be modified from the Grafana UI. To update a dashboard, edit the JSON file and restart Grafana:
-
-```sh
-docker compose restart grafana
-```
+The datasource (`grafana/provisioning/datasources/prometheus.yml`) and both dashboards (`grafana/dashboards/*.json`) are provisioned from the repository and locked against UI edits. To change a dashboard, edit its JSON and run `docker compose restart grafana`.

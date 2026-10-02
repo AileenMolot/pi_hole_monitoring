@@ -1,181 +1,36 @@
 # Raspberry Pi and Pi-hole Monitoring
 
-Docker Compose monitoring stack for a Raspberry Pi 5 and an existing Pi-hole instance.
+Docker Compose monitoring stack for a Raspberry Pi 5 and an existing Pi-hole instance. It doesn't install or manage Pi-hole; it only reads metrics from the Pi host and the Pi-hole API.
 
-This project intentionally does not install or manage Pi-hole. It only collects metrics from the Raspberry Pi host and from a Pi-hole API endpoint.
-
-## Stack
-
-- Prometheus for metrics collection and alert rules
-- Grafana for dashboards
-- Node Exporter for Raspberry Pi host metrics
-- Pi-hole Exporter for Pi-hole metrics
-- Alertmanager for alert routing
-- Signal delivery via `signal-cli-rest-api` and a small webhook bridge (`signal-bridge/bridge.py`)
-
-Pinned container baselines are kept current in `docker-compose.yml`. Review and refresh them as part of regular maintenance.
+- **Prometheus** collects metrics and evaluates alert rules
+- **Grafana** shows two provisioned dashboards: Raspberry Pi Resources and Pi-hole Monitoring
+- **Node Exporter** and **Pi-hole Exporter** expose the metrics
+- **Alertmanager** sends alerts to **Signal** through `signal-api` and a small webhook bridge (`signal-bridge/bridge.py`)
+- A **Watchdog** heartbeat can ping healthchecks.io, so you're told when the whole Pi goes down
 
 ## Requirements
 
-- Raspberry Pi OS or another Linux host
-- Docker Engine with Docker Compose
-- Existing Pi-hole instance reachable from the Raspberry Pi
-- Pi-hole app password (v6) or API token (v5)
-- A Signal account to link as a secondary device for alert delivery
+- Raspberry Pi OS (or another Linux host) with Docker Engine and Docker Compose
+- An existing Pi-hole reachable from the Pi, with an app password (v6) or API token (v5)
+- A Signal account to link as a secondary device
 
-## Configure
-
-Copy the example environment file and edit the values:
+## Quick start
 
 ```sh
-cp .env.example .env
-```
-
-Required values:
-
-```env
-MONITORING_BIND_ADDRESS=127.0.0.1
-PIHOLE_HOSTNAME=192.168.1.10
-PIHOLE_PROTOCOL=http
-PIHOLE_PORT=80
-PIHOLE_PASSWORD=paste-pihole-app-password
-GRAFANA_ADMIN_PASSWORD=use-a-long-random-password
-GRAFANA_SECRET_KEY=generate-with-openssl-rand-base64-32
-SIGNAL_NUMBER=+380...           # Signal account linked to signal-api
-SIGNAL_RECIPIENTS=+380...       # comma-separated recipients
-```
-
-Optionally set `HEALTHCHECKS_URL` to a healthchecks.io ping URL so you're alerted if the Pi or the stack goes down entirely.
-
-Generate `GRAFANA_SECRET_KEY` with:
-
-```sh
-openssl rand -base64 32
-```
-
-This key signs Grafana sessions. Without it, Grafana generates a random key at startup and all sessions are invalidated on every container restart.
-
-`PIHOLE_HOSTNAME` should be a hostname or IP address only. Keep the protocol in `PIHOLE_PROTOCOL`.
-
-`GRAFANA_ROOT_URL` defaults to `http://127.0.0.1:3000`. Set it to your Grafana URL if you want correct absolute links in alert notifications.
-
-`.env` is ignored by Git because it contains secrets. Keep the Pi-hole password and Grafana password out of commits, screenshots, and shared logs.
-
-## Run
-
-```sh
+cp .env.example .env && chmod 600 .env   # fill in the required values
+./scripts/validate_config.py
 docker compose up -d
-```
-
-Open:
-
-- Grafana: `http://127.0.0.1:3000`
-- Prometheus: `http://127.0.0.1:9090`
-- Alertmanager: `http://127.0.0.1:9093`
-
-The monitoring web UIs bind to localhost by default. For remote access, prefer SSH tunneling, a VPN, or an authenticated reverse proxy. If you intentionally want direct LAN access, set:
-
-```env
-MONITORING_BIND_ADDRESS=0.0.0.0
-```
-
-Grafana is provisioned automatically with:
-
-- `Raspberry Pi Resources`
-- `Pi-hole Monitoring`
-
-Provisioned dashboards cannot be deleted or edited from the UI. To modify them, edit the JSON files in `grafana/dashboards/` and restart Grafana.
-
-## Check Health
-
-Validate files before deploying:
-
-```sh
-./scripts/validate-config.sh
-```
-
-The validator checks:
-
-- YAML syntax (requires PyYAML)
-- JSON syntax
-- Shell script syntax
-- `docker compose config` (requires Docker)
-- Prometheus config and alert rules (requires `promtool`)
-- Python syntax
-- Whether `.env` exists
-- Whether an Alertmanager notification receiver is configured
-
-After the stack is running:
-
-```sh
 ./scripts/check-stack.sh
 ```
 
-This checks that Prometheus targets are healthy, Grafana is reachable, and Alertmanager is reachable.
+Then link Signal and send a test alert ([Operations, step 7](docs/operations.md#7-link-signal-for-alert-delivery)).
 
-In Prometheus, check `Status > Targets`. The expected jobs are:
-
-- `prometheus`
-- `raspberry-pi`
-- `pihole`
-
-## Alerts
-
-Alert rules live in `prometheus/alerts.yml`.
-
-Included alerts:
-
-- Raspberry Pi Node Exporter down
-- Pi-hole Exporter down
-- high Raspberry Pi CPU load
-- high memory usage
-- disk usage above 85 percent
-- recent Raspberry Pi reboot
-- CPU temperature above 80°C
-- sustained network interface errors
-- no Pi-hole DNS query increase for 15 minutes
-- very low Pi-hole block percentage
-- `Watchdog` heartbeat (always firing; feeds the optional dead man's switch)
-
-All alert descriptions include the actual metric value at the time of firing.
-
-When Node Exporter or the Pi-hole Exporter goes down, Alertmanager suppresses derived alerts for the same source via inhibit rules, preventing alert storms from a single root cause.
-
-Alertmanager sends alerts to Signal through `signal-bridge`, which forwards them to `signal-api`. Link the Signal account once after the first start; see [Operations](docs/operations.md#7-link-signal-for-alert-delivery).
-
-## State
-
-Dashboards, the datasource and all alerting config are provisioned from this repository, so there is nothing to back up. The `grafana-data` volume only holds UI preferences and can be reset at any time; see [Operations](docs/operations.md#state-and-recovery).
-
-## Notes
-
-Node Exporter uses host networking, host PID namespace, and a read-only host root mount so it can report Raspberry Pi host metrics instead of only container metrics. This is powerful by design, so Node Exporter listens only on the `docker0` bridge IP (`172.17.0.1:9100`) by default and is not reachable from the LAN. If your `docker0` IP differs, set `NODE_EXPORTER_LISTEN_ADDRESS` in `.env`.
-
-Prometheus scrapes Node Exporter through `host.docker.internal:9100`. Modern Docker Engine on Linux supports this through the host gateway mapping in many setups, but if the Raspberry Pi cannot resolve it, replace that target in `prometheus/prometheus.yml` with the Raspberry Pi LAN IP, for example `192.168.1.20:9100`.
-
-The Pi-hole scrape interval is set to 30 seconds to match the exporter poll interval. Scraping more frequently would return stale data.
-
-Pi-hole Exporter is reachable only inside the Docker monitoring network by default. If Pi-hole uses HTTPS with a private certificate, mount trusted certificates into the exporter container and set `PIHOLE_PROTOCOL=https`.
-
-## Security Defaults
-
-- Prometheus and Alertmanager are bound to localhost by default.
-- Pi-hole Exporter is not published to the host.
-- Prometheus HTTP lifecycle reload is disabled.
-- Alertmanager high-availability peer listening is disabled for this single-node stack.
-- Containers drop Linux capabilities and use `no-new-privileges` (except `signal-api`, see `SECURITY.md`).
-- All containers except `signal-api` use read-only root filesystems.
-- Container logs are capped at 3 × 10 MB per service.
-- Grafana sign-up, Gravatar, telemetry reporting, plugin update checks, and news feed are disabled.
-- Grafana sessions are signed with a user-supplied secret key.
-- Provisioned datasources and dashboards are locked against UI modification.
-- Secrets live in `.env`, which is ignored by Git.
-
-See `SECURITY.md` for the threat model, remaining risks, and deployment hardening checklist.
+Grafana is at `http://127.0.0.1:3000`, Prometheus at `:9090` and Alertmanager at `:9093`. They're bound to localhost; use an SSH tunnel for remote access ([Operations → Remote Access](docs/operations.md#remote-access)).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — component diagram, data flow, network layout, port summary
-- [Configuration](docs/configuration.md) — all environment variables, Prometheus and Alertmanager config reference
-- [Alerts](docs/alerts.md) — per-alert explanations and response runbooks
-- [Operations](docs/operations.md) — deploy, recovery, upgrade, remote access, troubleshooting
+- [Configuration](docs/configuration.md): `.env` and config files
+- [Operations](docs/operations.md): deploy, Signal linking, upgrades, recovery, remote access, troubleshooting
+- [Alerts](docs/alerts.md): what each alert means and how to respond
+- [Architecture](docs/architecture.md): components, network layout, ports
+- [Security](SECURITY.md): threat model, hardening, remaining risks

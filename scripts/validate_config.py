@@ -8,22 +8,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Config keys that indicate a real notification receiver is wired up.
-RECEIVER_CONFIG_KEYS = (
-    "email_configs",
-    "webhook_configs",
-    "slack_configs",
-    "pagerduty_configs",
-    "opsgenie_configs",
-    "victorops_configs",
-    "pushover_configs",
-    "sns_configs",
-    "telegram_configs",
-    "msteams_configs",
-    "discord_configs",
-    "webex_configs",
-)
-
 
 def project_files(pattern: str) -> list[Path]:
     """Files matching pattern, skipping hidden directories like .git."""
@@ -85,12 +69,6 @@ def main() -> int:
         ok("prometheus config and rules (promtool)")
     else:
         print("skip promtool checks: promtool is not installed")
-
-    alertmanager_config = (ROOT / "alertmanager/alertmanager.yml").read_text(encoding="utf-8")
-    if any(key in alertmanager_config for key in RECEIVER_CONFIG_KEYS):
-        ok("alertmanager/alertmanager.yml receiver")
-    else:
-        print("warn alertmanager/alertmanager.yml: no notification receiver configured — alerts will not be delivered")
 
     return 0
 

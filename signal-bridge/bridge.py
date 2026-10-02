@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-SIGNAL_API = os.environ.get("SIGNAL_API_URL", "http://signal-api:8080")
+SIGNAL_API = "http://signal-api:8080"
 SIGNAL_NUMBER = os.environ["SIGNAL_NUMBER"]
 SIGNAL_RECIPIENTS = os.environ["SIGNAL_RECIPIENTS"].split(",")
 HEALTHCHECKS_URL = os.environ.get("HEALTHCHECKS_URL", "")
