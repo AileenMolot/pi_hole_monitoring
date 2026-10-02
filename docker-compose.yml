@@ -9,7 +9,7 @@ x-logging: &logging
 
 services:
   prometheus:
-    image: prom/prometheus:v3.11.3-distroless
+    image: prom/prometheus:v3.15.0-distroless
     restart: unless-stopped
     logging: *logging
     command:
