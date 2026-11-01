@@ -151,7 +151,7 @@ services:
 
   # Translates Alertmanager webhooks into Signal messages.
   signal-bridge:
-    image: python:3.13.16-alpine3.24
+    image: python:3.15.0-alpine3.24
     restart: unless-stopped
     logging: *logging
     command: ["python", "-u", "/app/bridge.py"]
